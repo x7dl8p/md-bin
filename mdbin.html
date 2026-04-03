@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>mdbin — markdown pastebin</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Marked (MD renderer) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+
+<!-- Pako (zlib compression) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+
+<!-- Lucide icons -->
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+<!-- React + ReactDOM + Babel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          bg:      '#0c0c0f',
+          surface: '#141418',
+          border:  '#232329',
+          accent:  '#e8c97e',
+          accent2: '#7ecce8',
+          text:    '#e8e6e0',
+          muted:   '#6b6a65',
+          danger:  '#e87e7e',
+        },
+        fontFamily: {
+          mono:    ['"DM Mono"', 'monospace'],
+          serif:   ['"DM Serif Display"', 'serif'],
+          prose:   ['"Lora"', 'serif'],
+        },
+      }
+    }
+  }
+</script>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body, #root { height: 100%; background: #0c0c0f; color: #e8e6e0; font-family: 'DM Mono', monospace; }
+
+  /* custom scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #232329; border-radius: 2px; }
+
+  /* textarea reset */
+  textarea { resize: none; outline: none; }
+  textarea::selection { background: rgba(232,201,126,0.25); }
+
+  /* page fade-in */
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(12px); }
+    to   { opacity:1; transform:translateY(0); }
+  }
+  .fade-up { animation: fadeUp 0.28s ease; }
+
+  /* markdown rendered output */
+  .md-body { font-family: 'Lora', serif; font-size: 1.05rem; line-height: 1.85; color: #e8e6e0; }
+  .md-body h1,.md-body h2,.md-body h3,.md-body h4 {
+    font-family: 'DM Serif Display', serif;
+    color: #e8c97e;
+    margin: 1.6em 0 0.5em;
+    line-height: 1.15;
+    letter-spacing: -0.4px;
+  }
+  .md-body h1 { font-size: 2.2rem; border-bottom: 1px solid #232329; padding-bottom: 0.3em; }
+  .md-body h2 { font-size: 1.6rem; }
+  .md-body h3 { font-size: 1.25rem; color: #7ecce8; }
+  .md-body h4 { font-size: 1rem; color: #6b6a65; text-transform: uppercase; letter-spacing: 0.08em; font-family: 'DM Mono', monospace; }
+  .md-body p  { margin: 0.9em 0; }
+  .md-body a  { color: #7ecce8; text-decoration: underline; text-underline-offset: 3px; }
+  .md-body a:hover { color: #e8c97e; }
+  .md-body ul,.md-body ol { padding-left: 1.6em; margin: 0.8em 0; }
+  .md-body li { margin: 0.35em 0; }
+  .md-body blockquote {
+    border-left: 3px solid #e8c97e;
+    padding: 0.5em 1em;
+    margin: 1em 0;
+    background: rgba(232,201,126,0.05);
+    border-radius: 0 6px 6px 0;
+    color: #6b6a65;
+    font-style: italic;
+  }
+  .md-body code {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85em;
+    background: #141418;
+    border: 1px solid #232329;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #7ecce8;
+  }
+  .md-body pre {
+    background: #141418;
+    border: 1px solid #232329;
+    border-radius: 8px;
+    padding: 1.2em 1.4em;
+    overflow-x: auto;
+    margin: 1.2em 0;
+  }
+  .md-body pre code {
+    background: none; border: none; padding: 0;
+    font-size: 0.88em; color: #e8e6e0;
+  }
+  .md-body hr { border: none; border-top: 1px solid #232329; margin: 2em 0; }
+  .md-body table { width:100%; border-collapse:collapse; font-size:0.9rem; margin: 1em 0; }
+  .md-body th { border-bottom: 1px solid #e8c97e; padding: 8px 12px; text-align:left; color:#e8c97e; font-family:'DM Mono',monospace; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; }
+  .md-body td { border-bottom: 1px solid #232329; padding: 8px 12px; }
+  .md-body img { max-width:100%; border-radius:8px; margin: 1em 0; }
+
+  /* toolbar btn active */
+  .tb-btn { transition: background 0.12s, color 0.12s; }
+  .tb-btn:hover { background: rgba(232,201,126,0.1); color: #e8c97e; }
+
+  /* copy flash */
+  @keyframes flashGreen {
+    0%,100% { opacity:1; }
+    50% { opacity:0.4; }
+  }
+  .flash { animation: flashGreen 0.4s ease; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ── Compression helpers ─────────────────────────────────────────────
+function compress(str) {
+  const bytes = new TextEncoder().encode(str);
+  const compressed = pako.deflate(bytes, { level: 9 });
+  // base64url encode
+  let binary = '';
+  compressed.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function decompress(b64url) {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const decompressed = pako.inflate(bytes);
+  return new TextDecoder().decode(decompressed);
+}
+
+// ── Router ──────────────────────────────────────────────────────────
+function getRoute() {
+  const hash = window.location.hash;
+  if (hash.startsWith('#/view/')) return { page: 'view', data: hash.slice(7) };
+  return { page: 'edit', data: null };
+}
+
+function useRouter() {
+  const [route, setRoute] = useState(getRoute);
+  useEffect(() => {
+    const handler = () => setRoute(getRoute());
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
+  return route;
+}
+
+// ── Lucide icon wrapper ─────────────────────────────────────────────
+function Icon({ name, size = 14, ...props }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && window.lucide) {
+      ref.current.innerHTML = '';
+      const svg = lucide.createElement(lucide[name] || lucide['HelpCircle']);
+      svg.setAttribute('width', size);
+      svg.setAttribute('height', size);
+      svg.setAttribute('stroke-width', '1.8');
+      ref.current.appendChild(svg);
+    }
+  }, [name, size]);
+  return <span ref={ref} className="inline-flex items-center justify-center" {...props}/>;
+}
+
+// ── Toolbar button ──────────────────────────────────────────────────
+function TbBtn({ icon, label, onClick, title }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title || label}
+      className="tb-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded text-muted hover:text-accent text-xs font-mono"
+    >
+      <Icon name={icon} size={13}/>
+      {label && <span className="hidden sm:inline">{label}</span>}
+    </button>
+  );
+}
+
+// ── Editor page ─────────────────────────────────────────────────────
+const PLACEHOLDER = `# Hello, mdbin
+
+Write your **markdown** here. Everything is saved in the URL — no server, no database.
+
+## How it works
+
+- Write your content below
+- Click **Publish** to generate a shareable link
+- The content is compressed and encoded into the URL hash
+
+## Features
+
+- Full markdown support
+- Syntax highlighting
+- Tables, blockquotes, code blocks
+- Completely offline — no data leaves your browser
+
+> "The best tools are the ones that stay out of your way."
+
+\`\`\`js
+const greet = name => \`Hello, \${name}!\`;
+console.log(greet('world'));
+\`\`\`
+`;
+
+function EditorPage() {
+  const [text, setText] = useState(PLACEHOLDER);
+  const [copied, setCopied] = useState(false);
+  const [charCount, setCharCount] = useState(PLACEHOLDER.length);
+  const taRef = useRef(null);
+
+  const handleChange = (e) => {
+    setText(e.target.value);
+    setCharCount(e.target.value.length);
+  };
+
+  const publish = () => {
+    try {
+      const compressed = compress(text);
+      window.location.hash = `/view/${compressed}`;
+    } catch(e) {
+      alert('Compression failed: ' + e.message);
+    }
+  };
+
+  // Insert markdown syntax around selection
+  const wrap = (before, after = before) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const { selectionStart: s, selectionEnd: e, value } = ta;
+    const selected = value.slice(s, e);
+    const newVal = value.slice(0, s) + before + selected + after + value.slice(e);
+    setText(newVal);
+    setCharCount(newVal.length);
+    setTimeout(() => {
+      ta.focus();
+      ta.setSelectionRange(s + before.length, e + before.length);
+    }, 0);
+  };
+
+  const insertLine = (prefix) => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const { selectionStart: s, value } = ta;
+    const lineStart = value.lastIndexOf('\n', s - 1) + 1;
+    const newVal = value.slice(0, lineStart) + prefix + value.slice(lineStart);
+    setText(newVal);
+    setCharCount(newVal.length);
+    setTimeout(() => { ta.focus(); ta.setSelectionRange(s + prefix.length, s + prefix.length); }, 0);
+  };
+
+  const copyRaw = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  const clearAll = () => {
+    if (window.confirm('Clear everything?')) { setText(''); setCharCount(0); }
+  };
+
+  return (
+    <div className="flex flex-col h-screen fade-up">
+      {/* Top bar */}
+      <header className="flex items-center justify-between px-5 border-b border-border bg-surface" style={{minHeight:52}}>
+        <div className="flex items-center gap-3">
+          <span className="font-serif text-accent text-xl tracking-tight">mdbin</span>
+          <span className="text-muted text-xs font-mono hidden sm:block">/ markdown pastebin</span>
+        </div>
+
+        <div className="flex items-center gap-1">
+          <span className="text-muted text-xs font-mono mr-3 hidden sm:block">{charCount.toLocaleString()} chars</span>
+          <TbBtn icon="Copy" label={copied ? 'Copied' : 'Copy'} onClick={copyRaw} title="Copy raw markdown"/>
+          <TbBtn icon="Trash2" label="Clear" onClick={clearAll} title="Clear editor"/>
+          <div className="w-px h-5 bg-border mx-1"/>
+          <button
+            onClick={publish}
+            className="flex items-center gap-2 px-4 py-1.5 rounded bg-accent text-bg text-xs font-mono font-medium hover:bg-opacity-90 transition-all"
+          >
+            <Icon name="Share2" size={13}/>
+            Publish
+          </button>
+        </div>
+      </header>
+
+      {/* Markdown toolbar */}
+      <div className="flex flex-wrap items-center gap-0.5 px-3 py-1.5 border-b border-border bg-surface" style={{minHeight:40}}>
+        <TbBtn icon="Heading1"    title="Heading 1"      onClick={() => insertLine('# ')}/>
+        <TbBtn icon="Heading2"    title="Heading 2"      onClick={() => insertLine('## ')}/>
+        <TbBtn icon="Heading3"    title="Heading 3"      onClick={() => insertLine('### ')}/>
+        <div className="w-px h-4 bg-border mx-1"/>
+        <TbBtn icon="Bold"        title="Bold"           onClick={() => wrap('**')}/>
+        <TbBtn icon="Italic"      title="Italic"         onClick={() => wrap('_')}/>
+        <TbBtn icon="Strikethrough" title="Strikethrough" onClick={() => wrap('~~')}/>
+        <TbBtn icon="Code"        title="Inline code"    onClick={() => wrap('`')}/>
+        <div className="w-px h-4 bg-border mx-1"/>
+        <TbBtn icon="Link"        title="Link"           onClick={() => wrap('[', '](url)')}/>
+        <TbBtn icon="Image"       title="Image"          onClick={() => wrap('![alt](', ')')}/>
+        <div className="w-px h-4 bg-border mx-1"/>
+        <TbBtn icon="List"        title="Bullet list"    onClick={() => insertLine('- ')}/>
+        <TbBtn icon="ListOrdered" title="Ordered list"   onClick={() => insertLine('1. ')}/>
+        <TbBtn icon="Quote"       title="Blockquote"     onClick={() => insertLine('> ')}/>
+        <TbBtn icon="Minus"       title="Divider"        onClick={() => { const ta=taRef.current; if(!ta) return; const s=ta.selectionStart; const v=ta.value; const nv=v.slice(0,s)+'\n---\n'+v.slice(s); setText(nv); }}/>
+        <TbBtn icon="Table2"      title="Table"          onClick={() => { const t='\n| Col 1 | Col 2 |\n|-------|-------|\n| Cell  | Cell  |\n'; const ta=taRef.current; if(!ta) return; const s=ta.selectionStart; const nv=ta.value.slice(0,s)+t+ta.value.slice(s); setText(nv); }}/>
+        <div className="w-px h-4 bg-border mx-1"/>
+        <TbBtn icon="SquareCode"  title="Code block"     onClick={() => wrap('\n```\n', '\n```\n')}/>
+      </div>
+
+      {/* Editor area */}
+      <textarea
+        ref={taRef}
+        value={text}
+        onChange={handleChange}
+        className="flex-1 w-full bg-bg text-text font-mono text-sm leading-relaxed px-8 py-6 focus:outline-none"
+        style={{fontSize:'0.87rem', caretColor:'#e8c97e', tabSize:2}}
+        spellCheck={false}
+        placeholder="Start writing markdown..."
+      />
+
+      {/* Status bar */}
+      <div className="flex items-center justify-between px-5 py-2 border-t border-border bg-surface text-muted text-xs font-mono">
+        <span>Markdown</span>
+        <span className="flex items-center gap-1.5">
+          <Icon name="Lock" size={11}/>
+          content never leaves your browser
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── View page ───────────────────────────────────────────────────────
+function ViewPage({ data }) {
+  const [content, setContent] = useState(null);
+  const [error, setError]     = useState(null);
+  const [copied, setCopied]   = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = decompress(data);
+      setContent(raw);
+    } catch(e) {
+      setError('Could not decompress content. The URL may be corrupted.');
+    }
+  }, [data]);
+
+  const rendered = content ? marked.parse(content, { breaks: true, gfm: true }) : '';
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+
+  const goEdit = () => { window.location.hash = ''; };
+
+  return (
+    <div className="flex flex-col h-screen fade-up">
+      {/* Top bar */}
+      <header className="flex items-center justify-between px-5 border-b border-border bg-surface" style={{minHeight:52}}>
+        <div className="flex items-center gap-3">
+          <span className="font-serif text-accent text-xl tracking-tight">mdbin</span>
+          <span className="text-muted text-xs font-mono hidden sm:block">/ reading view</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {content && (
+            <span className="text-muted text-xs font-mono hidden sm:block">
+              {content.length.toLocaleString()} chars · {content.split(/\s+/).filter(Boolean).length.toLocaleString()} words
+            </span>
+          )}
+          <button
+            onClick={copyLink}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono border border-border text-muted hover:text-accent hover:border-accent transition-all"
+          >
+            <Icon name={copied ? 'Check' : 'Link2'} size={12}/>
+            {copied ? 'Copied!' : 'Copy link'}
+          </button>
+          <button
+            onClick={goEdit}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-accent text-bg text-xs font-mono font-medium hover:bg-opacity-90 transition-all"
+          >
+            <Icon name="Pencil" size={12}/>
+            New paste
+          </button>
+        </div>
+      </header>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto">
+        {error && (
+          <div className="max-w-2xl mx-auto mt-20 text-center">
+            <div style={{fontSize:'4rem', fontFamily:'DM Serif Display', color:'#232329'}}>!</div>
+            <p className="text-danger text-sm font-mono mt-4">{error}</p>
+            <button onClick={goEdit} className="mt-6 px-4 py-2 border border-border text-muted text-xs font-mono rounded hover:text-accent hover:border-accent transition-all">
+              Start fresh
+            </button>
+          </div>
+        )}
+
+        {!error && !content && (
+          <div className="flex items-center justify-center h-full text-muted text-xs font-mono">
+            <Icon name="Loader" size={16} className="animate-spin mr-2"/> Decompressing...
+          </div>
+        )}
+
+        {content && (
+          <div className="max-w-2xl mx-auto px-6 py-12">
+            <div
+              className="md-body"
+              dangerouslySetInnerHTML={{ __html: rendered }}
+            />
+            {/* Footer */}
+            <div className="mt-16 pt-8 border-t border-border flex items-center justify-between text-muted text-xs font-mono">
+              <span className="flex items-center gap-1.5">
+                <Icon name="Lock" size={11}/>
+                stored in URL · no server
+              </span>
+              <button onClick={goEdit} className="flex items-center gap-1.5 hover:text-accent transition-colors">
+                <Icon name="Plus" size={11}/>
+                create new paste
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── App ─────────────────────────────────────────────────────────────
+function App() {
+  const route = useRouter();
+
+  // Initialize lucide after mount
+  useEffect(() => {
+    if (window.lucide) lucide.createIcons();
+  }, []);
+
+  if (route.page === 'view') return <ViewPage data={route.data}/>;
+  return <EditorPage/>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
